@@ -141,7 +141,9 @@ async function startServer() {
   if (!isProduction) {
     const { createServer } = await import('vite');
     const vite = await createServer({
-      server: { middlewareMode: true },
+      // The hosted preview proxies HTTP but does not expose Vite's HMR WebSocket.
+      // Disable the client socket so it cannot report "WebSocket closed without opened".
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);
