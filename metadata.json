@@ -1,0 +1,6 @@
+{
+  "name": "أستاذة براءة رفيق البياري - صرح الوفاء والعرفان",
+  "description": "منصة تفاعلية وطنية لشكر وتقدير جنود وحماة الوطن 🇸🇦 - مبادرة من قسم مواد الهوية الوطنية - مدارس قواعد المستقبل العالمية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
