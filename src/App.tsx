@@ -62,7 +62,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-homeland-pattern text-[#FAF8F5] relative selection:bg-emerald-500/30 selection:text-white pb-12">
+    <div className="min-h-screen bg-homeland-pattern text-[#FAF8F5] relative selection:bg-emerald-500/30 selection:text-white">
       {/* القسم الأول: قسم إرسال الظرف */}
       <SendEnvelopeSection
         onMessageSent={handleMessageSent}
@@ -84,7 +84,8 @@ export default function App() {
           onLike={handleLike}
         />
       )}
-
     </div>
   );
 }
+
+export { App };
