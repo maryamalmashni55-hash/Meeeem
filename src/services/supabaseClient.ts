@@ -192,52 +192,12 @@ export function deduplicateMessages(list: TributeMessage[]): TributeMessage[] {
 }
 
 export async function fetchMessages(): Promise<TributeMessage[]> {
-  // 1. If Supabase is configured, use it as the primary permanent cloud database
-  const supabase = initSupabase();
-  if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (!error && Array.isArray(data)) {
-        const mapped: TributeMessage[] = data.map((item: any) => ({
-          id: String(item.id),
-          sender_name: item.sender_name || 'فاعل خير',
-          grade: item.grade || 'مدارس قواعد المستقبل',
-          message: item.message || '',
-          envelope_color: item.envelope_color || 'saudi-green',
-          stamp_type: item.stamp_type || 'saudi-emblem',
-          likes: Number(item.likes) || 0,
-          created_at: item.created_at || new Date().toISOString(),
-        }));
-
-        inMemoryMessages = deduplicateMessages(mapped);
-        return inMemoryMessages;
-      }
-    } catch (err) {
-      console.warn('Supabase fetch error, checking API fallback:', err);
-    }
+  const res = await fetch('/api/messages', { headers: { Accept: 'application/json' } });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.success || !Array.isArray(data.messages)) {
+    throw new Error(data?.error || 'تعذر تحميل الأظرف من قاعدة البيانات.');
   }
-
-  // 2. Fetch from /api/messages (Vercel Serverless Function or Node server)
-  try {
-    const res = await fetch('/api/messages', {
-      headers: { Accept: 'application/json' },
-    });
-    const cType = res.headers.get('content-type') || '';
-    if (res.ok && cType.includes('application/json')) {
-      const data = await res.json();
-      if (data?.success && Array.isArray(data.messages)) {
-        inMemoryMessages = deduplicateMessages(data.messages);
-        return inMemoryMessages;
-      }
-    }
-  } catch (err) {
-    // API unreachable
-  }
-
+  inMemoryMessages = deduplicateMessages(data.messages);
   return inMemoryMessages;
 }
 
@@ -256,68 +216,26 @@ export async function createTributeMessage(
     created_at: new Date().toISOString(),
   };
 
-  let savedInSupabase = false;
-
-  // 1. If Supabase is configured, insert directly into permanent cloud database
-  const supabase = initSupabase();
-  if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('messages')
-        .insert([
-          {
-            sender_name: newMsg.sender_name,
-            grade: newMsg.grade,
-            message: newMsg.message,
-            envelope_color: newMsg.envelope_color,
-            stamp_type: newMsg.stamp_type,
-            likes: 0,
-          },
-        ])
-        .select()
-        .single();
-
-      if (!error && data) {
-        newMsg.id = String(data.id);
-        newMsg.created_at = data.created_at || newMsg.created_at;
-        savedInSupabase = true;
-      } else if (error) {
-        console.error('Supabase insert error:', error);
-      }
-    } catch (err) {
-      console.warn('Failed to insert directly into Supabase:', err);
-    }
+  const res = await fetch('/api/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      sender_name: newMsg.sender_name,
+      grade: newMsg.grade,
+      message: newMsg.message,
+      envelope_color: newMsg.envelope_color,
+      stamp_type: newMsg.stamp_type,
+    }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.success || !data.message) {
+    throw new Error(data?.error || 'تعذر حفظ الظرف في قاعدة البيانات.');
   }
 
-  // 2. Persist to /api/messages (Vercel Serverless Function & Node backend)
-  try {
-    const res = await fetch('/api/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({
-        sender_name: newMsg.sender_name,
-        grade: newMsg.grade,
-        message: newMsg.message,
-        envelope_color: newMsg.envelope_color,
-        stamp_type: newMsg.stamp_type,
-      }),
-    });
-
-    const cType = res.headers.get('content-type') || '';
-    if (res.ok && cType.includes('application/json')) {
-      const data = await res.json();
-      if (data?.success && data?.message && !savedInSupabase) {
-        newMsg.id = String(data.message.id || newMsg.id);
-        newMsg.created_at = data.message.created_at || newMsg.created_at;
-      }
-    }
-  } catch (err) {
-    console.warn('Could not save to /api/messages:', err);
-  }
-
+  const saved = data.message;
+  newMsg.id = String(saved.id);
+  newMsg.created_at = saved.created_at || newMsg.created_at;
+  newMsg.likes = Number(saved.likes) || 0;
   inMemoryMessages = deduplicateMessages([newMsg, ...inMemoryMessages]);
   notifyMemoryListeners();
 
@@ -327,22 +245,15 @@ export async function createTributeMessage(
 export async function likeTributeMessage(id: string, currentLikes: number): Promise<number> {
   const nextLikes = currentLikes + 1;
 
-  // 1. Update Supabase if configured
-  const supabase = initSupabase();
-  if (supabase) {
-    try {
-      await supabase.from('messages').update({ likes: nextLikes }).eq('id', id);
-    } catch (err) {
-      console.warn('Error updating like on Supabase:', err);
-    }
+  const res = await fetch(`/api/messages/${id}/like`, { method: 'POST' });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.error || 'تعذر تحديث التفاعل.');
   }
 
-  // 2. Update via API
-  try {
-    await fetch(`/api/messages/${id}/like`, { method: 'POST' });
-  } catch {}
-
-  inMemoryMessages = inMemoryMessages.map((m) => (m.id === id ? { ...m, likes: nextLikes } : m));
+  inMemoryMessages = inMemoryMessages.map((m) =>
+    m.id === id ? { ...m, likes: Number(data.likes) || nextLikes } : m
+  );
   notifyMemoryListeners();
   return nextLikes;
 }

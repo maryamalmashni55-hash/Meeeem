@@ -1,7 +1,9 @@
 import express from 'express';
-import fs from 'fs';
+import pg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+const { Pool } = pg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,123 +18,69 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 app.use(express.json());
 
-// Persistent database file on disk: data/messages.json
-const DATA_DIR = path.resolve(__dirname, 'data');
-const DB_FILE = path.resolve(DATA_DIR, 'messages.json');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 
-function ensureDbFile() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2), 'utf-8');
-  }
-}
-
-function readStoredMessages() {
-  try {
-    ensureDbFile();
-    const raw = fs.readFileSync(DB_FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (err) {
-    console.error('Failed to read messages DB:', err);
-    return [];
-  }
-}
-
-function writeStoredMessages(messages: any[]) {
-  try {
-    ensureDbFile();
-    const tempFile = `${DB_FILE}.tmp.${Date.now()}`;
-    fs.writeFileSync(tempFile, JSON.stringify(messages, null, 2), 'utf-8');
-    fs.renameSync(tempFile, DB_FILE);
-    return true;
-  } catch (err) {
-    console.error('Failed to write messages DB:', err);
-    return false;
-  }
-}
+const messageColumns = `
+  id,
+  sender_name,
+  grade,
+  message,
+  envelope_color,
+  stamp_type,
+  likes,
+  created_at
+`;
 
 // REST API Endpoints
-app.get('/api/messages', (req, res) => {
+app.get('/api/messages', async (_req, res) => {
   try {
-    const list = readStoredMessages();
-    res.json({ success: true, messages: list });
+    const result = await pool.query(`SELECT ${messageColumns} FROM public.messages ORDER BY created_at DESC`);
+    res.json({ success: true, messages: result.rows });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || 'Server error' });
+    console.error('Neon message read failed:', err);
+    res.status(500).json({ success: false, error: 'تعذر تحميل الأظرف من قاعدة البيانات.' });
   }
 });
 
-app.post('/api/messages', (req, res) => {
+app.post('/api/messages', async (req, res) => {
+  const { sender_name, grade, message, envelope_color, stamp_type } = req.body;
+  const sender = typeof sender_name === 'string' ? sender_name.trim() : '';
+  const text = typeof message === 'string' ? message.trim() : '';
+
+  if (!sender) return res.status(400).json({ success: false, error: 'اسم المرسل مطلوب' });
+  if (!text) return res.status(400).json({ success: false, error: 'نص الرسالة مطلوب' });
+
   try {
-    const { sender_name, grade, message, envelope_color, stamp_type } = req.body;
-
-    if (!sender_name || typeof sender_name !== 'string' || !sender_name.trim()) {
-      return res.status(400).json({ success: false, error: 'اسم المرسل مطلوب' });
-    }
-    if (!message || typeof message !== 'string' || !message.trim()) {
-      return res.status(400).json({ success: false, error: 'نص الرسالة مطلوب' });
-    }
-
-    const currentList = readStoredMessages();
-
-    // Check for exact duplicates within the current list
-    const existing = currentList.find(
-      (m: any) =>
-        m.sender_name?.trim() === sender_name.trim() &&
-        m.message?.trim() === message.trim()
+    const result = await pool.query(
+      `INSERT INTO public.messages (sender_name, grade, message, envelope_color, stamp_type)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING ${messageColumns}`,
+      [sender, typeof grade === 'string' && grade.trim() ? grade.trim() : 'مدارس قواعد المستقبل', text,
+        typeof envelope_color === 'string' && envelope_color ? envelope_color : 'saudi-green',
+        typeof stamp_type === 'string' && stamp_type ? stamp_type : 'saudi-emblem']
     );
-
-    if (existing) {
-      return res.json({ success: true, message: existing, duplicate: true });
-    }
-
-    const newRecord = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
-      sender_name: sender_name.trim(),
-      grade: (grade && typeof grade === 'string' && grade.trim()) || 'مدارس قواعد المستقبل',
-      message: message.trim(),
-      envelope_color: envelope_color || 'saudi-green',
-      stamp_type: stamp_type || 'saudi-emblem',
-      likes: 0,
-      created_at: new Date().toISOString(),
-    };
-
-    const updatedList = [newRecord, ...currentList];
-    writeStoredMessages(updatedList);
-
-    res.status(201).json({ success: true, message: newRecord });
+    if (result.rowCount !== 1) throw new Error('Database insert returned no row');
+    res.status(201).json({ success: true, message: result.rows[0] });
   } catch (err: any) {
-    console.error('Error inserting message:', err);
-    res.status(500).json({ success: false, error: err.message || 'Server error' });
+    console.error('Neon message insert failed:', err);
+    res.status(500).json({ success: false, error: 'تعذر حفظ الظرف في قاعدة البيانات.' });
   }
 });
 
-app.post('/api/messages/:id/like', (req, res) => {
+app.post('/api/messages/:id/like', async (req, res) => {
   try {
-    const { id } = req.params;
-    const currentList = readStoredMessages();
-    let updatedLikes = 0;
-    let found = false;
-
-    const nextList = currentList.map((m: any) => {
-      if (m.id === id) {
-        found = true;
-        updatedLikes = (Number(m.likes) || 0) + 1;
-        return { ...m, likes: updatedLikes };
-      }
-      return m;
-    });
-
-    if (found) {
-      writeStoredMessages(nextList);
-      return res.json({ success: true, id, likes: updatedLikes });
-    }
-
-    res.status(404).json({ success: false, error: 'Message not found' });
+    const result = await pool.query(
+      'UPDATE public.messages SET likes = likes + 1 WHERE id = $1 RETURNING id, likes',
+      [req.params.id]
+    );
+    if (result.rowCount !== 1) return res.status(404).json({ success: false, error: 'Message not found' });
+    res.json({ success: true, ...result.rows[0] });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || 'Server error' });
+    console.error('Neon like update failed:', err);
+    res.status(500).json({ success: false, error: 'تعذر تحديث التفاعل.' });
   }
 });
 
