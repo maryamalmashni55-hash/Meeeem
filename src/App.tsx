@@ -1,29 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Database } from 'lucide-react';
 import { TributeMessage } from './types';
 import { SendEnvelopeSection } from './components/SendEnvelopeSection';
 import { LiveEnvelopesGallery } from './components/LiveEnvelopesGallery';
 import { EnvelopeModal } from './components/EnvelopeModal';
-import { CloudDatabaseModal } from './components/CloudDatabaseModal';
 import {
   fetchMessages,
   subscribeToRealtimeMessages,
   likeTributeMessage,
   deduplicateMessages,
-  getSupabaseConfig,
 } from './services/supabaseClient';
 
 export default function App() {
   const [messages, setMessages] = useState<TributeMessage[]>([]);
   const [selectedMessage, setSelectedMessage] = useState<TributeMessage | null>(null);
-  const [showDbModal, setShowDbModal] = useState(false);
-  const [isCloudConfigured, setIsCloudConfigured] = useState(() => getSupabaseConfig().isConfigured);
 
   const loadData = useCallback(async () => {
     try {
       const data = await fetchMessages();
       setMessages(deduplicateMessages(data));
-      setIsCloudConfigured(getSupabaseConfig().isConfigured);
     } catch (err) {
       console.error('Failed to load messages:', err);
     }
@@ -32,7 +26,7 @@ export default function App() {
   useEffect(() => {
     loadData();
 
-    // Setup Supabase Realtime subscription
+    // Refresh the shared Neon-backed gallery when realtime updates arrive.
     const unsubscribe = subscribeToRealtimeMessages((updatedMessages) => {
       setMessages(deduplicateMessages(updatedMessages));
       setSelectedMessage((current) => {
@@ -91,32 +85,6 @@ export default function App() {
         />
       )}
 
-      {/* شارة إعدادات وتأكيد قاعدة البيانات السحابية الدائمة */}
-      <div className="fixed bottom-4 left-4 z-40">
-        <button
-          type="button"
-          onClick={() => setShowDbModal(true)}
-          className="px-3.5 py-1.5 rounded-full bg-[#092015]/95 hover:bg-[#0F3523] border border-[#10B981]/40 text-emerald-300 text-xs shadow-2xl backdrop-blur-md flex items-center gap-2 transition-all hover:scale-105 cursor-pointer"
-          title="فحص حالة قاعدة البيانات السحابية (Supabase) وإعدادات Vercel"
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              isCloudConfigured ? 'bg-[#34D399] shadow-sm shadow-emerald-400' : 'bg-amber-400 animate-pulse'
-            }`}
-          />
-          <Database className="w-3.5 h-3.5 text-emerald-400" />
-          <span className="font-medium text-[11px]">
-            {isCloudConfigured ? 'قاعدة البيانات السحابية (Supabase)' : 'إعدادات قاعدة البيانات (Vercel/Supabase)'}
-          </span>
-        </button>
-      </div>
-
-      {/* نافذة فحص وإعداد قاعدة البيانات السحابية */}
-      <CloudDatabaseModal
-        isOpen={showDbModal}
-        onClose={() => setShowDbModal(false)}
-        onConfigUpdated={loadData}
-      />
     </div>
   );
 }

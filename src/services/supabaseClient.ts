@@ -1,161 +1,6 @@
-import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import { TributeMessage } from '../types';
 
-// Read environment variables as specified by user
-const envSupabaseUrl =
-  (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_SUPABASE_URL) ||
-  (import.meta.env?.VITE_SUPABASE_URL as string) ||
-  '';
-
-const envSupabaseAnonKey =
-  (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY) ||
-  (import.meta.env?.VITE_SUPABASE_ANON_KEY as string) ||
-  '';
-
-export const INITIAL_TRIBUTE_MESSAGES: TributeMessage[] = [];
-
 let inMemoryMessages: TributeMessage[] = [];
-const listeners: Array<(messages: TributeMessage[]) => void> = [];
-
-let broadcastChannel: BroadcastChannel | null = null;
-if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-  try {
-    broadcastChannel = new BroadcastChannel('homeland_protectors_channel');
-    broadcastChannel.onmessage = (event) => {
-      if (event?.data?.type === 'SYNC_MESSAGES' && Array.isArray(event.data.messages)) {
-        inMemoryMessages = deduplicateMessages(event.data.messages);
-        listeners.forEach((cb) => {
-          try {
-            cb([...inMemoryMessages]);
-          } catch (e) {
-            console.error('Listener callback error:', e);
-          }
-        });
-      }
-    };
-  } catch {
-    // BroadcastChannel might fail in some sandboxed iframes
-  }
-}
-
-function notifyMemoryListeners() {
-  const current = [...inMemoryMessages];
-  listeners.forEach((cb) => {
-    try {
-      cb(current);
-    } catch (e) {
-      console.error('Listener error:', e);
-    }
-  });
-
-  if (broadcastChannel) {
-    try {
-      broadcastChannel.postMessage({ type: 'SYNC_MESSAGES', messages: current });
-    } catch {
-      // Ignore postMessage iframe restrictions
-    }
-  }
-}
-
-let activeSupabaseClient: SupabaseClient | null = null;
-let activeChannel: RealtimeChannel | null = null;
-
-export function getSupabaseConfig(): { url: string; key: string; isConfigured: boolean } {
-  let sessionUrl: string | null = null;
-  let sessionKey: string | null = null;
-
-  try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      sessionUrl = window.sessionStorage.getItem('CUSTOM_SUPABASE_URL');
-      sessionKey = window.sessionStorage.getItem('CUSTOM_SUPABASE_ANON_KEY');
-    }
-  } catch {
-    // sessionStorage might be restricted in cross-origin iframe
-  }
-
-  const url = (sessionUrl || envSupabaseUrl || '').trim();
-  const key = (sessionKey || envSupabaseAnonKey || '').trim();
-  const isConfigured = Boolean(url && key && url.startsWith('http') && key.length > 10);
-
-  return { url, key, isConfigured };
-}
-
-export function setCustomSupabaseConfig(url: string, key: string): void {
-  try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      if (url && key) {
-        window.sessionStorage.setItem('CUSTOM_SUPABASE_URL', url.trim());
-        window.sessionStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', key.trim());
-      } else {
-        window.sessionStorage.removeItem('CUSTOM_SUPABASE_URL');
-        window.sessionStorage.removeItem('CUSTOM_SUPABASE_ANON_KEY');
-      }
-    }
-  } catch {}
-
-  activeSupabaseClient = null;
-  if (activeChannel) {
-    try {
-      activeChannel.unsubscribe();
-    } catch {}
-    activeChannel = null;
-  }
-}
-
-export async function testSupabaseConnection(
-  url: string,
-  key: string
-): Promise<{ success: boolean; message: string }> {
-  try {
-    const trimmedUrl = (url || '').trim();
-    const trimmedKey = (key || '').trim();
-    if (!trimmedUrl.startsWith('http')) {
-      return { success: false, message: 'رابط Supabase يجب أن يبدأ بـ https://' };
-    }
-    if (trimmedKey.length < 15) {
-      return { success: false, message: 'مفتاح Anon Key غير صالح أو قصير جداً' };
-    }
-    const testClient = createClient(trimmedUrl, trimmedKey, { auth: { persistSession: false } });
-    const { error } = await testClient.from('messages').select('id', { count: 'exact', head: true });
-    if (error) {
-      if (error.code === '42P01') {
-        return {
-          success: false,
-          message: 'تم الاتصال بـ Supabase، ولكن جدول messages غير موجود. يرجى إنشاء الجدول باستخدام كود SQL الموضح أدناه.',
-        };
-      }
-      return { success: false, message: `تعذر الاتصال بقاعدة البيانات: ${error.message}` };
-    }
-    return {
-      success: true,
-      message: 'تم الاتصال بقاعدة بيانات Supabase بنجاح! جدول الأظرف جاهز للحفظ والقراءة والمزامنة اللحظية.',
-    };
-  } catch (err: any) {
-    return { success: false, message: err?.message || 'تعذر الاتصال بقاعدة بيانات Supabase' };
-  }
-}
-
-export function initSupabase(): SupabaseClient | null {
-  const { url, key, isConfigured } = getSupabaseConfig();
-  if (!isConfigured) return null;
-
-  if (activeSupabaseClient) return activeSupabaseClient;
-
-  try {
-    activeSupabaseClient = createClient(url, key, {
-      auth: { persistSession: false },
-      realtime: {
-        params: {
-          eventsPerSecond: 10,
-        },
-      },
-    });
-    return activeSupabaseClient;
-  } catch (err) {
-    console.error('Failed to initialize Supabase client:', err);
-    return null;
-  }
-}
 
 export function deduplicateMessages(list: TributeMessage[]): TributeMessage[] {
   if (!Array.isArray(list)) return [];
@@ -237,7 +82,6 @@ export async function createTributeMessage(
   newMsg.created_at = saved.created_at || newMsg.created_at;
   newMsg.likes = Number(saved.likes) || 0;
   inMemoryMessages = deduplicateMessages([newMsg, ...inMemoryMessages]);
-  notifyMemoryListeners();
 
   return newMsg;
 }
@@ -254,40 +98,13 @@ export async function likeTributeMessage(id: string, currentLikes: number): Prom
   inMemoryMessages = inMemoryMessages.map((m) =>
     m.id === id ? { ...m, likes: Number(data.likes) || nextLikes } : m
   );
-  notifyMemoryListeners();
   return nextLikes;
 }
 
 export function subscribeToRealtimeMessages(
   onUpdate: (messages: TributeMessage[]) => void
 ): () => void {
-  listeners.push(onUpdate);
-
-  // Setup Supabase Realtime subscription
-  const supabase = initSupabase();
-  if (supabase) {
-    try {
-      if (activeChannel) {
-        activeChannel.unsubscribe();
-      }
-
-      activeChannel = supabase
-        .channel('homeland-messages-realtime')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'messages' },
-          async () => {
-            const updated = await fetchMessages();
-            onUpdate(updated);
-          }
-        )
-        .subscribe();
-    } catch (err) {
-      console.warn('Realtime subscription error:', err);
-    }
-  }
-
-  // Background polling every 6 seconds so all visitors/devices stay in sync
+  // Background polling every 6 seconds keeps all visitors and devices in sync through Neon.
   const pollInterval = setInterval(async () => {
     try {
       const updated = await fetchMessages();
@@ -299,11 +116,5 @@ export function subscribeToRealtimeMessages(
 
   return () => {
     clearInterval(pollInterval);
-    const idx = listeners.indexOf(onUpdate);
-    if (idx !== -1) listeners.splice(idx, 1);
-    if (activeChannel) {
-      activeChannel.unsubscribe();
-      activeChannel = null;
-    }
   };
 }
