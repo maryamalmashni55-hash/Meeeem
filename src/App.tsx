@@ -26,7 +26,7 @@ export default function App() {
   useEffect(() => {
     loadData();
 
-    // Setup Supabase Realtime subscription
+    // Refresh the shared Neon-backed gallery when realtime updates arrive.
     const unsubscribe = subscribeToRealtimeMessages((updatedMessages) => {
       setMessages(deduplicateMessages(updatedMessages));
       setSelectedMessage((current) => {

@@ -1,1 +1,22 @@
-[]
+[
+  {
+    "id": "msg-1792744110514-s5x7ov",
+    "sender_name": "اختبار حفظ مؤقت",
+    "grade": "KG 1",
+    "message": "رسالة اختبار مؤقتة للتحقق من Neon",
+    "envelope_color": "saudi-green",
+    "stamp_type": "saudi-emblem",
+    "likes": 0,
+    "created_at": "2026-10-23T08:28:30.514Z"
+  },
+  {
+    "id": "msg-1792743344323-yzmtfz",
+    "sender_name": "اختبار Neon",
+    "grade": "KG 1",
+    "message": "رسالة اختبار للحفظ المشترك",
+    "envelope_color": "saudi-green",
+    "stamp_type": "saudi-emblem",
+    "likes": 3,
+    "created_at": "2026-10-23T08:15:44.323Z"
+  }
+]
