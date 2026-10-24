@@ -1,4 +1,4 @@
-import { messageColumns, pool } from './_db';
+import { messageColumns, pool } from './_db.js';
 
 type Request = { method?: string; body?: Record<string, unknown> };
 type Response = { status: (code: number) => Response; json: (body: unknown) => Response; setHeader: (name: string, value: string) => void };
