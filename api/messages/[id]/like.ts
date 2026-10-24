@@ -1,4 +1,4 @@
-import { pool } from '../../_db';
+import { pool } from '../../_db.js';
 
 type Request = { method?: string; query?: Record<string, string | string[] | undefined> };
 type Response = { status: (code: number) => Response; json: (body: unknown) => Response; setHeader: (name: string, value: string) => void };
