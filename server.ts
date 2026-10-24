@@ -1,5 +1,10 @@
+import 'dotenv/config';
+import dotenv from 'dotenv';
 import express from 'express';
 import pg from 'pg';
+
+dotenv.config({ path: '.env.development.local' });
+dotenv.config({ path: '.env.local' });
 import path from 'path';
 import { fileURLToPath } from 'url';
 
