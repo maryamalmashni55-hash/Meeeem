@@ -1,5 +1,10 @@
+import 'dotenv/config';
+import dotenv from 'dotenv';
 import express from 'express';
 import pg from 'pg';
+
+dotenv.config({ path: '.env.development.local' });
+dotenv.config({ path: '.env.local' });
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -90,8 +95,16 @@ async function startServer() {
     const { createServer } = await import('vite');
     const vite = await createServer({
       // The hosted preview proxies HTTP but does not expose Vite's HMR WebSocket.
-      // Disable the client socket so it cannot report "WebSocket closed without opened".
+      // Disable HMR and remove the client script so it cannot report a closed socket.
       server: { middlewareMode: true, hmr: false, ws: false },
+      plugins: [
+        {
+          name: 'remove-preview-hmr-client',
+          transformIndexHtml(html: string) {
+            return html.replace(/<script[^>]+src=["']\/@vite\/client["'][^>]*><\/script>/g, '');
+          },
+        },
+      ],
       appType: 'spa',
     });
     app.use(vite.middlewares);
